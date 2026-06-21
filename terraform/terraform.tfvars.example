@@ -9,6 +9,10 @@ health_html_content = "OK"
 db_username       = "admin"
 # db_password should be set using the environment variable TF_VAR_db_password
 # export TF_VAR_db_password="your_password_here"
-# Your laptop IP - get it by running: curl ifconfig.me
-# admin_cidr_blocks = ["YOUR_IP/32"]
+
+# Your public IP for SSH access to EC2 instances
+# Get your IP: curl ifconfig.me
+# Add both laptop IP and RHEL VM IP if running Ansible from RHEL VM
+# admin_cidr_blocks = ["YOUR_LAPTOP_IP/32", "YOUR_RHEL_VM_IP/32"]
+
 alert_email       = "user@example.com"
