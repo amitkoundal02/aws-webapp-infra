@@ -49,8 +49,8 @@ variable "health_html_content" {
 
 variable "admin_cidr_blocks" {
   type        = list(string)
-  default     = ["49.207.149.147/32"]
-  description = "CIDR blocks for SSH access"
+  default     = []
+  description = "Your public IP in CIDR format - set via terraform.tfvars or TF_VAR_admin_cidr_blocks. Get your IP with: curl ifconfig.me"
 }
 
 variable "db_username" {

@@ -4,6 +4,7 @@ terraform/terraform.tfstate.backup
 terraform/terraform.tfvars
 terraform/.terraform.lock.hcl
 terraform/tfplan
+terraform/modules/lambda/rds_monitor.zip
 ansible/inventory.ini
 ansible/.vault_pass
 ansible/*.retry
