@@ -111,6 +111,7 @@ resource "aws_security_group" "asg" {
 resource "aws_launch_template" "this" {
   name_prefix   = "${var.name}-lt-"
   image_id      = data.aws_ami.amazon_linux.id
+  key_name      = var.key_name
   instance_type = var.instance_type
   iam_instance_profile {
     name = aws_iam_instance_profile.this.name

@@ -58,6 +58,11 @@ variable "admin_cidr_blocks" {
   description = "CIDR blocks allowed SSH access to ASG instances"
 }
 
+variable "key_name" {
+  type        = string
+  description = "EC2 key pair name for SSH access"
+}
+
 variable "tags" {
   type        = map(string)
   description = "Tags to apply to resources"

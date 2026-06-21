@@ -37,6 +37,12 @@ variable "asg_desired_capacity" {
   default = 1
 }
 
+variable "key_name" {
+  type        = string
+  default     = "instance_key"
+  description = "EC2 key pair name that already exists in ap-south-1"
+}
+
 variable "index_html_content" {
   type    = string
   default = "<h1>Welcome to the AWS Web App</h1>\n<p>Healthy</p>"
