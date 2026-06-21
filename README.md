@@ -231,7 +231,7 @@ terraform destroy
 - **EC2 SSH**: Port 22 allowed only from `admin_cidr_blocks` (your IP)
 - **RDS**: Port 3306 allowed only from EC2 security group (no public access)
 - **IAM Roles**: EC2 instances assume roles with minimum required permissions
-  - SQS access for Lambda state (if used)
+  - Lambda IAM role scoped to cloudwatch:GetMetricStatistics and sns:Publish on the specific topic ARN only
   - CloudWatch Logs for Lambda execution
   - No hardcoded AWS keys on instances
 - **Secrets Management**: Database password passed via `TF_VAR_db_password` environment variable (never in code)
