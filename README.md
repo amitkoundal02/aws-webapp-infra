@@ -196,7 +196,11 @@ terraform apply
 ### Step 7: Note the Outputs
 ```bash
 terraform output
-# Save ALB_DNS_NAME and MONITOR_INSTANCE_IP for later steps
+# Outputs you will see:
+# alb_dns_name      = use this for curl and browser testing
+# monitor_public_ip = use this for Grafana SSH tunnel
+# rds_endpoint      = RDS connection string
+# lambda_function_name = Lambda monitor function name
 ```
 
 ### Step 8: Confirm SNS Subscription
@@ -204,8 +208,9 @@ Check your email and confirm the SNS subscription from AWS.
 
 ### Step 9: Copy Ansible Folder to RHEL VM
 ```bash
-scp -r ../ansible/ ec2-user@your-rhel-vm:/home/ec2-user/
-ssh ec2-user@your-rhel-vm
+scp -r ../ansible/ YOUR_USERNAME@RHEL_VM_IP:~/
+ssh YOUR_USERNAME@RHEL_VM_IP
+cd ansible/
 ```
 
 ### Step 10: Populate Inventory
@@ -235,7 +240,7 @@ curl http://<ALB_DNS_NAME>/health
 ### Step 14: Access Grafana via SSH Tunnel
 From your laptop:
 ```bash
-ssh -L 3000:<MONITOR_IP>:3000 -i ~/.ssh/id_rsa ec2-user@<MONITOR_IP>
+ssh -L 3000:<MONITOR_IP>:3000 -i ~/.ssh/instance_key.pem ec2-user@<MONITOR_IP>
 # Then open: http://localhost:3000
 # Default: admin / admin
 ```
