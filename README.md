@@ -35,7 +35,6 @@ Production-pattern AWS infrastructure built with Terraform (5 modules) and confi
          │                          │
          │ ┌────────────────────────▼──────────────────────┐
          │ │        VPC 10.0.0.0/16                       │
-         │ │   (VPC Flow Logs enabled)                    │
          │ │                                               │
          │ │ ┌──────────────────────────────────────────┐ │
          │ │ │   Private Subnets (RDS placement)        │ │
@@ -94,7 +93,7 @@ Production-pattern AWS infrastructure built with Terraform (5 modules) and confi
 - **Terraform State Backend**: S3 + DynamoDB for remote state and locking
 - **IAM Instance Profiles**: EC2 instances use IAM roles (no hardcoded credentials, least privilege policies)
 - **Security Groups**: Layered SG rules, ALB only exposed to internet on port 80
-- **Resource Tags**: All resources tagged with `Project`, `Environment`, `ManagedBy`, `CreatedDate`
+- **Resource Tags**: All resources tagged with `Project`, `Environment`, `ManagedBy`
 
 ## Prerequisites
 
@@ -123,13 +122,37 @@ Production-pattern AWS infrastructure built with Terraform (5 modules) and confi
      --region ap-south-1
    ```
 
-5. **Ansible**: On deployment machine (RHEL/CentOS VM)
+5. **SSH Key Pair** — Convert existing PPK to PEM:
+
+   On Windows using PuTTYgen:
+   - Open PuTTYgen
+   - Load your instance_key.ppk file
+   - Go to Conversions → Export OpenSSH key
+   - Save as instance_key.pem
+
+   Copy PEM to RHEL VM:
+   ```bash
+   scp instance_key.pem user@RHEL_VM_IP:~/.ssh/
+   chmod 400 ~/.ssh/instance_key.pem
+   ```
+
+   Update `ansible/ansible.cfg`:
+   ```ini
+   private_key_file = ~/.ssh/instance_key.pem
+   ```
+
+   Key pair name in `terraform.tfvars`:
+   ```hcl
+   key_name = "instance_key"
+   ```
+
+6. **Ansible**: On deployment machine (RHEL/CentOS VM)
    ```bash
    sudo yum install -y python3 python3-pip
    pip3 install ansible
    ```
 
-6. **jq**: JSON query tool
+7. **jq**: JSON query tool
    ```bash
    sudo yum install -y jq
    ```

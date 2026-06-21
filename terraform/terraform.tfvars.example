@@ -15,4 +15,7 @@ db_username       = "admin"
 # Add both laptop IP and RHEL VM IP if running Ansible from RHEL VM
 # admin_cidr_blocks = ["YOUR_LAPTOP_IP/32", "YOUR_RHEL_VM_IP/32"]
 
+# EC2 key pair name (must exist in ap-south-1)
+key_name = "instance_key"
+
 alert_email       = "user@example.com"

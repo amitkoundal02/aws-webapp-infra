@@ -96,6 +96,14 @@ resource "aws_security_group" "asg" {
     description = "SSH access for Ansible"
   }
 
+  ingress {
+    from_port   = 9100
+    to_port     = 9100
+    protocol    = "tcp"
+    cidr_blocks = var.admin_cidr_blocks
+    description = "Node exporter port for Prometheus scraping"
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
