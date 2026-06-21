@@ -1,0 +1,89 @@
+---
+- name: Download Prometheus tarball
+  get_url:
+    url: https://github.com/prometheus/prometheus/releases/download/v2.51.0/prometheus-2.51.0.linux-amd64.tar.gz
+    dest: /tmp/prometheus.tar.gz
+    mode: '0644'
+
+- name: Extract Prometheus
+  unarchive:
+    src: /tmp/prometheus.tar.gz
+    dest: /opt
+    remote_src: yes
+
+- name: Create prometheus user
+  user:
+    name: prometheus
+    system: yes
+    create_home: no
+
+- name: Install Prometheus binary
+  command: cp /opt/prometheus-2.51.0.linux-amd64/prometheus /usr/local/bin/prometheus
+  args:
+    creates: /usr/local/bin/prometheus
+
+- name: Create Prometheus systemd service
+  copy:
+    dest: /etc/systemd/system/prometheus.service
+    content: |
+      [Unit]
+      Description=Prometheus
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      User=prometheus
+      ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus
+      Restart=always
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: '0644'
+
+- name: Create Prometheus data directory
+  file:
+    path: /var/lib/prometheus
+    state: directory
+    owner: prometheus
+    group: prometheus
+    mode: '0755'
+
+- name: Reload systemd
+  command: systemctl daemon-reload
+
+- name: Download Grafana rpm
+  get_url:
+    url: https://dl.grafana.com/oss/release/grafana-10.4.2-1.x86_64.rpm
+    dest: /tmp/grafana.rpm
+    mode: '0644'
+
+- name: Install Grafana rpm
+  dnf:
+    name: /tmp/grafana.rpm
+    state: present
+
+- name: Create Prometheus config directory
+  file:
+    path: /etc/prometheus
+    state: directory
+    mode: '0755'
+
+- name: Deploy Prometheus configuration
+  template:
+    src: prometheus.yml.j2
+    dest: /etc/prometheus/prometheus.yml
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Enable and start Prometheus
+  service:
+    name: prometheus
+    state: started
+    enabled: true
+
+- name: Enable and start Grafana
+  service:
+    name: grafana-server
+    state: started
+    enabled: true

@@ -1,0 +1,51 @@
+---
+- name: Ensure required packages are installed
+  package:
+    name:
+      - git
+      - python3
+      - python3-pip
+      - unzip
+      - jq
+    state: present
+
+- name: Ensure swap file exists
+  command: /bin/dd if=/dev/zero of=/swapfile bs=1M count=1024
+  args:
+    creates: /swapfile
+
+- name: Set swap file permissions
+  file:
+    path: /swapfile
+    mode: '0600'
+
+- name: Format swap file
+  command: /sbin/mkswap /swapfile
+  changed_when: false
+
+- name: Enable swap
+  command: /sbin/swapon /swapfile
+  when: ansible_swaptotal_mb == 0
+
+- name: Ensure swap entry in fstab
+  mount:
+    name: none
+    src: /swapfile
+    fstype: swap
+    opts: sw
+    state: present
+
+- name: Ensure deploy user exists
+  user:
+    name: deploy
+    groups: wheel
+    shell: /bin/bash
+    state: present
+
+- name: Allow deploy user sudo without password
+  copy:
+    dest: /etc/sudoers.d/deploy
+    content: "deploy ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: '0440'

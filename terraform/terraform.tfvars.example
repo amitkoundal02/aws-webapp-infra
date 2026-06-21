@@ -1,0 +1,14 @@
+aws_region        = "ap-south-1"
+vpc_cidr          = "10.0.0.0/16"
+instance_type     = "t2.micro"
+asg_min_size      = 1
+asg_max_size      = 2
+asg_desired_capacity = 1
+index_html_content = "<h1>Welcome to the AWS Web App</h1>\n<p>Healthy</p>"
+health_html_content = "OK"
+db_username       = "admin"
+# db_password should be set using the environment variable TF_VAR_db_password
+# export TF_VAR_db_password="your_password_here"
+# Your laptop IP - get it by running: curl ifconfig.me
+# admin_cidr_blocks = ["YOUR_IP/32"]
+alert_email       = "user@example.com"

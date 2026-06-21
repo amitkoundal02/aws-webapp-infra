@@ -1,0 +1,13 @@
+- hosts: web
+  become: true
+  roles:
+    - common
+    - webserver
+    - node_exporter
+
+- hosts: monitor
+  become: true
+  roles:
+    - common
+    - node_exporter
+    - monitoring

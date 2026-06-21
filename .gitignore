@@ -1,0 +1,12 @@
+terraform/.terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfvars
+terraform/.terraform.lock.hcl
+terraform/tfplan
+ansible/inventory.ini
+ansible/.vault_pass
+ansible/*.retry
+*.log
+__pycache__/
+.DS_Store

@@ -1,0 +1,43 @@
+---
+- name: Install Apache httpd
+  dnf:
+    name: httpd
+    state: present
+
+- name: Enable and start httpd
+  service:
+    name: httpd
+    state: started
+    enabled: true
+
+- name: Create web root
+  file:
+    path: /var/www/html
+    state: directory
+    owner: apache
+    group: apache
+    mode: '0755'
+
+- name: Deploy index.html
+  copy:
+    dest: /var/www/html/index.html
+    content: |
+      <html>
+      <head><title>AWS Web App</title></head>
+      <body>
+        <h1>Welcome to the AWS Web App</h1>
+        <p>Healthy</p>
+      </body>
+      </html>
+    owner: apache
+    group: apache
+    mode: '0644'
+
+- name: Deploy health endpoint
+  copy:
+    dest: /var/www/html/health
+    content: |
+      OK
+    owner: apache
+    group: apache
+    mode: '0644'
