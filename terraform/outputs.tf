@@ -17,3 +17,8 @@ output "sns_topic_arn" {
 output "lambda_function_name" {
   value = module.lambda.lambda_function_name
 }
+
+output "monitor_public_ip" {
+  value       = module.asg.monitor_instance_public_ip
+  description = "Public IP of Prometheus/Grafana monitor"
+}

@@ -131,7 +131,7 @@ resource "aws_launch_template" "this" {
     resource_type = "instance"
 
     tags = merge(var.tags, {
-      Name = "${var.name}-instance"
+      Name = "${var.name}-web"
     })
   }
 }
@@ -190,4 +190,18 @@ resource "aws_autoscaling_policy" "scale_out" {
   adjustment_type        = "ChangeInCapacity"
   cooldown               = 300
   autoscaling_group_name = aws_autoscaling_group.this.name
+}
+
+resource "aws_instance" "monitor" {
+  ami                         = data.aws_ami.amazon_linux.id
+  instance_type               = "t2.micro"
+  subnet_id                   = var.public_subnet_ids[0]
+  key_name                    = var.key_name
+  associate_public_ip_address = true
+  iam_instance_profile        = aws_iam_instance_profile.this.name
+  vpc_security_group_ids      = [aws_security_group.asg.id]
+
+  tags = merge(var.tags, {
+    Name = "${var.name}-monitor"
+  })
 }

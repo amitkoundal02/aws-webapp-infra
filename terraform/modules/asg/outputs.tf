@@ -13,3 +13,8 @@ output "instance_profile_name" {
 output "autoscaling_security_group_id" {
   value = aws_security_group.asg.id
 }
+
+output "monitor_instance_public_ip" {
+  value       = aws_instance.monitor.public_ip
+  description = "Public IP of monitoring instance"
+}
