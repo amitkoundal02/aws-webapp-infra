@@ -13,393 +13,305 @@ Production-pattern AWS infrastructure built with Terraform (5 modules) and confi
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         INTERNET                             │
-└────────────────────────────┬────────────────────────────────┘
-                             │
-                          ┌──▼──┐
-                          │ ALB │ (Port 80)
-                          └──┬──┘
-                   ┌──────────┴──────────┐
-         ┌────────▼────────┐  ┌────────▼────────┐
-         │  Public SN-AZ-a │  │  Public SN-AZ-b │
-         │  ┌────────────┐ │  │ ┌────────────┐ │
-         │  │ EC2 ASG    │ │  │ │ EC2 ASG    │ │
-         │  │ t2.micro   │ │  │ │ t2.micro   │ │
-         │  │ Apache 80  │ │  │ │ Apache 80  │ │
-         │  │ NodeExp    │ │  │ │ NodeExp    │ │
-         │  └─────┬──────┘ │  │ └─────┬──────┘ │
-         └────────┼────────┘  └───────┼────────┘
-                  │                   │
-         ## Usage — End to End Setup
+                          INTERNET
+                              |
+                         ┌────▼────┐
+                         │   ALB   │  Port 80 — internet-facing
+                         └────┬────┘
+                    ┌─────────┴──────────┐
+           ┌────────▼────────┐  ┌────────▼────────┐
+           │  Public SN AZ-a │  │  Public SN AZ-b │
+           │  EC2 t2.micro   │  │  EC2 t2.micro   │
+           │  Apache :80     │  │  Apache :80     │
+           │  node_exp :9100 │  │  node_exp :9100 │
+           └────────┬────────┘  └────────┬────────┘
+                    │  Auto Scaling Group  │
+                    │   min:1  max:2       │
+                    └──────────┬───────────┘
+                               │ MySQL :3306
+               ┌───────────────▼───────────────┐
+               │   Private Subnets (AZ-a/AZ-b) │
+               │   RDS MySQL 8.0 db.t3.micro   │
+               │   Single-AZ  20GB  No public  │
+               └───────────────────────────────┘
 
-         ### Phase 1: Prerequisites (One-time setup)
+  ┌──────────────────────────────────────────────┐
+  │  Public Subnet — Monitor EC2 t2.micro        │
+  │  Prometheus :9090  Grafana :3000             │
+  │  node_exporter :9100                         │
+  │  Scrapes all instances on port 9100          │
+  └──────────────────────────────────────────────┘
 
-         Step 1: Clone the repository
-         ```bash
-         git clone https://github.com/amitkoundal02/aws-webapp-infra.git
-         cd aws-webapp-infra/terraform/
-         ```
+  ┌──────────────────────────────────────────────┐
+  │  EventBridge (every 5 min)                   │
+  │    → Lambda Python 3.12 (rds_monitor.py)     │
+  │      → CloudWatch GetMetricStatistics        │
+  │        → SNS Email Alert (storage < 5GB)     │
+  └──────────────────────────────────────────────┘
 
-         Step 2: Create S3 bucket for Terraform state
-         ```bash
-         aws s3api create-bucket \
-            --bucket aws-webapp-infra-remote-state \
-            --region ap-south-1 \
-            --create-bucket-configuration LocationConstraint=ap-south-1
-         aws s3api put-bucket-versioning \
-            --bucket aws-webapp-infra-remote-state \
-            --versioning-configuration Status=Enabled
-         ```
+  ┌──────────────────────────────────────────────┐
+  │  Terraform Remote State                      │
+  │  S3: aws-webapp-infra-remote-state           │
+  │  DynamoDB: aws-webapp-infra-state-lock       │
+  └──────────────────────────────────────────────┘
+```
 
-         Step 3: Create DynamoDB table for state locking
-         ```bash
-         aws dynamodb create-table \
-            --table-name aws-webapp-infra-state-lock \
-            --attribute-definitions AttributeName=LockID,AttributeType=S \
-            --key-schema AttributeName=LockID,KeyType=HASH \
-            --billing-mode PAY_PER_REQUEST \
-            --region ap-south-1
-         ```
+## What This Provisions
 
-         Step 4: Convert SSH key from PPK to PEM (Windows)
-         - Open PuTTYgen
-         - Load instance_key.ppk
-         - Conversions → Export OpenSSH key
-         - Save as instance_key.pem
-         - Copy to RHEL VM: 
-            ```bash
-            scp instance_key.pem YOUR_USERNAME@RHEL_VM_IP:~/.ssh/
-            chmod 400 ~/.ssh/instance_key.pem
-            ```
+- **VPC** `10.0.0.0/16` with 4 subnets across 2 AZs (ap-south-1a, ap-south-1b)
+- **Internet Gateway** for public subnets (no NAT Gateway — cost saving for lab)
+- **Application Load Balancer** internet-facing, port 80, health check on `/health`
+- **Auto Scaling Group** min 1, max 2, t2.micro — scales out at 70% CPU
+- **Monitor EC2** t2.micro — dedicated Prometheus + Grafana host
+- **RDS MySQL 8.0** db.t3.micro, 20GB gp2, single-AZ, private subnet only
+- **Lambda** Python 3.12 — triggered every 5 min, monitors RDS free storage
+- **SNS Email Alert** when RDS storage drops below 5GB
+- **S3 + DynamoDB** Terraform remote state with locking
+- **IAM Instance Profiles** on EC2 — least privilege, no hardcoded credentials
+- **Security Groups** layered — ALB → EC2 → RDS, each accepting only from previous tier
+- **All resources tagged** `Project`, `Environment`, `ManagedBy`
 
-         Step 5: Configure terraform.tfvars
-         ```bash
-         cp terraform.tfvars.example terraform.tfvars
-         ```
-         Edit terraform.tfvars and set:
-         - admin_cidr_blocks with your laptop IP AND 
-            RHEL VM IP (get each with: curl ifconfig.me)
-         - alert_email with your real email
-         - key_name = "instance_key"
+## Prerequisites
 
-         Step 6: Set database password (never in files)
-         ```bash
-         export TF_VAR_db_password="YourSecurePassword"
-         ```
+**1. AWS CLI configured**
+```bash
+aws configure
+# Region: ap-south-1
+```
 
-         ### Phase 2: Deploy Infrastructure with Terraform
+**2. Terraform >= 1.5**
+```bash
+terraform --version
+```
 
-         Step 7: Initialize Terraform
-         ```bash
-         cd terraform/
-         terraform init
-         ```
+**3. Create S3 bucket for Terraform state** *(one-time)*
+```bash
+aws s3api create-bucket \
+  --bucket aws-webapp-infra-remote-state \
+  --region ap-south-1 \
+  --create-bucket-configuration LocationConstraint=ap-south-1
 
-         Step 8: Preview what will be created
-         ```bash
-         terraform plan
-         ```
-         (Review 33 resources before applying)
+aws s3api put-bucket-versioning \
+  --bucket aws-webapp-infra-remote-state \
+  --versioning-configuration Status=Enabled
+```
 
-         Step 9: Apply infrastructure (takes 10-15 minutes)
-         ```bash
-         terraform apply
-         ```
-         Type "yes" when prompted
+**4. Create DynamoDB table for state locking** *(one-time)*
+```bash
+aws dynamodb create-table \
+  --table-name aws-webapp-infra-state-lock \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST \
+  --region ap-south-1
+```
 
-         Step 10: Save the outputs
-         ```bash
-         terraform output
-         ```
-         Save these values:
-         - alb_dns_name      → web app URL
-         - monitor_public_ip → Grafana/Prometheus server IP
-         - rds_endpoint      → database connection string
+**5. Convert SSH key from PPK to PEM** *(Windows — one-time)*
+- Open **PuTTYgen** → Load `instance_key.ppk`
+- Go to **Conversions → Export OpenSSH key** → Save as `instance_key.pem`
+- Copy to RHEL VM:
+```bash
+scp instance_key.pem YOUR_USERNAME@RHEL_VM_IP:~/.ssh/
+# On RHEL VM:
+chmod 400 ~/.ssh/instance_key.pem
+```
 
-         Step 11: Confirm SNS email subscription
-         Check your email inbox for AWS notification email
-         Click "Confirm subscription" link
-         (Without this Lambda alerts will not be delivered)
+**6. Ansible on RHEL VM**
+```bash
+pip3 install ansible
+sudo dnf install -y jq
+aws configure   # same credentials as laptop
+```
 
-         ### Phase 3: Configure Infrastructure with Ansible
+---
 
-         Step 12: On your RHEL VM, install prerequisites
-         ```bash
-         pip3 install ansible
-         sudo dnf install -y jq
-         aws configure  (use same credentials as laptop)
-         ```
+## Usage — End to End
 
-         Step 13: Copy Ansible code to RHEL VM (from laptop)
-         ```bash
-         scp -r ansible/ YOUR_USERNAME@RHEL_VM_IP:~/
-         ```
+### Phase 1: Deploy Infrastructure with Terraform
 
-         Step 14: SSH into RHEL VM and run update_ips.sh
-         ```bash
-         ssh YOUR_USERNAME@RHEL_VM_IP
-         cd ansible/
-         chmod +x update_ips.sh
-         ./update_ips.sh
-         cat inventory.ini
-         ```
-         (Verify web and monitor IPs appear — not empty)
-
-         Step 15: Test SSH connectivity to EC2 instances
-         ```bash
-         ansible all -i inventory.ini -m ping
-         ```
-         (All instances should return pong)
-         If UNREACHABLE — check admin_cidr_blocks includes 
-         RHEL VM IP and re-run terraform apply
-
-         Step 16: Run Ansible playbook
-         ```bash
-         ansible-playbook -i inventory.ini site.yml
-         ```
-         (Takes 5-10 minutes)
-         Installs on web hosts: Apache, node_exporter
-         Installs on monitor host: Prometheus, Grafana, node_exporter
-
-         ### Phase 4: Verify Everything Works
-
-         Step 17: Test web application via ALB
-         ```bash
-         curl http://ALB_DNS_NAME/
-         curl http://ALB_DNS_NAME/health
-         ```
-         (Both should return HTTP 200)
-         Open ALB_DNS_NAME in browser to see the web page
-
-         Step 18: Access Grafana dashboard
-         From your laptop run:
-         ```bash
-         ssh -L 3000:MONITOR_PUBLIC_IP:3000 \
-            -i ~/.ssh/instance_key.pem \
-            ec2-user@MONITOR_PUBLIC_IP
-         ```
-         Then open: http://localhost:3000
-         Login: admin / admin (change password immediately)
-
-         Step 19: Access Prometheus targets
-         From your laptop run:
-         ```bash
-         ssh -L 9090:MONITOR_PUBLIC_IP:9090 \
-            -i ~/.ssh/instance_key.pem \
-            ec2-user@MONITOR_PUBLIC_IP
-         ```
-         Then open: http://localhost:9090/targets
-         All targets should show State = UP
-
-         Step 20: Verify Lambda monitoring
-         In AWS Console → Lambda → aws-webapp-infra-rds-monitor
-         Click Test → create test event → run
-         Check CloudWatch Logs for execution output
-         SNS email arrives if RDS storage below 5GB
-
-         Step 21: Verify Auto Scaling (optional test)
-         ```bash
-         aws autoscaling describe-auto-scaling-groups \
-            --region ap-south-1 \
-            --query 'AutoScalingGroups[].{Name:AutoScalingGroupName,Min:MinSize,Max:MaxSize,Desired:DesiredCapacity}'
-         ```
-
-         ### Phase 5: Cleanup
-
-         Step 22: Destroy all infrastructure when done
-         ```bash
-         cd terraform/
-         terraform destroy
-         ```
-         Type "yes" when prompted
-         (Removes all resources except S3 bucket and 
-         DynamoDB table which are needed for future runs)
-
-         Step 23: Verify no resources running
-         ```bash
-         aws resourcegroupstaggingapi get-resources \
-            --tag-filters Key=Project,Values=aws-webapp-infra \
-            --region ap-south-1 \
-            --query 'ResourceTagMappingList[].ResourceARN'
-         ```
-         (Should return empty list [])
-   ```
-
-5. **SSH Key Pair** — Convert existing PPK to PEM:
-
-   On Windows using PuTTYgen:
-   - Open PuTTYgen
-   - Load your instance_key.ppk file
-   - Go to Conversions → Export OpenSSH key
-   - Save as instance_key.pem
-
-   Copy PEM to RHEL VM:
-   ```bash
-   scp instance_key.pem user@RHEL_VM_IP:~/.ssh/
-   chmod 400 ~/.ssh/instance_key.pem
-   ```
-
-   Update `ansible/ansible.cfg`:
-   ```ini
-   private_key_file = ~/.ssh/instance_key.pem
-   ```
-
-   Key pair name in `terraform.tfvars`:
-   ```hcl
-   key_name = "instance_key"
-   ```
-
-6. **Ansible**: On deployment machine (RHEL/CentOS VM)
-   ```bash
-   sudo yum install -y python3 python3-pip
-   pip3 install ansible
-   ```
-
-7. **jq**: JSON query tool
-   ```bash
-   sudo yum install -y jq
-   ```
-
-## Usage
-
-### Step 1: Clone and Navigate
+**Step 1: Clone and navigate**
 ```bash
 git clone https://github.com/amitkoundal02/aws-webapp-infra.git
 cd aws-webapp-infra/terraform/
 ```
 
-### Step 2: Configure Terraform Variables
+**Step 2: Configure variables**
 ```bash
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars:
-# - Set admin_cidr_blocks to your IP: curl ifconfig.me
-# - Update alert_email to receive RDS alerts
 ```
+Edit `terraform.tfvars` and set:
+- `admin_cidr_blocks` — your laptop IP **and** RHEL VM IP (run `curl ifconfig.me` on each)
+- `alert_email` — your real email address for SNS alerts
+- `key_name = "instance_key"` — your existing key pair in ap-south-1
 
-### Step 3: Set Database Password
+**Step 3: Set database password** *(never store in files)*
 ```bash
-export TF_VAR_db_password="YourSecurePassword123!"
+export TF_VAR_db_password="YourSecurePassword"
 ```
 
-### Step 4: Initialize Terraform
+**Step 4: Initialize and deploy**
 ```bash
 terraform init
+terraform plan        # review 33 resources before applying
+terraform apply       # takes 10-15 minutes (RDS provisioning)
 ```
 
-### Step 5: Plan the Infrastructure
-```bash
-terraform plan
-```
-
-### Step 6: Apply Infrastructure (10-15 min for RDS)
-```bash
-terraform apply
-```
-
-### Step 7: Note the Outputs
+**Step 5: Save outputs**
 ```bash
 terraform output
-# Outputs you will see:
-# alb_dns_name      = use this for curl and browser testing
-# monitor_public_ip = use this for Grafana SSH tunnel
-# rds_endpoint      = RDS connection string
-# lambda_function_name = Lambda monitor function name
 ```
+Note these values:
+- `alb_dns_name` → web app URL for testing
+- `monitor_public_ip` → Grafana/Prometheus server IP
+- `rds_endpoint` → database connection string
+- `lambda_function_name` → Lambda monitor function name
 
-### Step 8: Confirm SNS Subscription
-Check your email and confirm the SNS subscription from AWS.
+**Step 6: Confirm SNS email subscription**
+Check your inbox for AWS notification email → click **Confirm subscription**
+*(Without this, Lambda RDS alerts will not be delivered)*
 
-### Step 9: Copy Ansible Folder to RHEL VM
+---
+
+### Phase 2: Configure Instances with Ansible
+
+**Step 7: Copy Ansible to RHEL VM** *(from laptop)*
 ```bash
-scp -r ../ansible/ YOUR_USERNAME@RHEL_VM_IP:~/
+scp -r ansible/ YOUR_USERNAME@RHEL_VM_IP:~/
 ssh YOUR_USERNAME@RHEL_VM_IP
 cd ansible/
 ```
 
-### Step 10: Populate Inventory
+**Step 8: Populate inventory from AWS**
 ```bash
-cd ansible/
-bash update_ips.sh
-cat inventory.ini  # Verify IPs are present
+chmod +x update_ips.sh
+./update_ips.sh
+cat inventory.ini    # verify web and monitor IPs appear — not empty
 ```
+Expected output:
+```
+[web]
+13.233.xxx.xxx
 
-### Step 11: Test Ansible Connectivity
+[monitor]
+15.207.xxx.xxx
+```
+If empty — check `admin_cidr_blocks` includes RHEL VM IP and re-run `terraform apply`
+
+**Step 9: Test connectivity**
 ```bash
 ansible all -i inventory.ini -m ping
 ```
+All instances should return `pong`. If `UNREACHABLE` — verify port 22 is open from your RHEL VM IP.
 
-### Step 12: Run Ansible Playbook
+**Step 10: Run Ansible playbook**
 ```bash
 ansible-playbook -i inventory.ini site.yml
-# Installs Apache, Node Exporter, Prometheus, Grafana
 ```
+Takes 5-10 minutes. Installs:
+- Web hosts: Apache httpd, node_exporter
+- Monitor host: Prometheus, Grafana, node_exporter
 
-### Step 13: Verify Web Application
+---
+
+### Phase 3: Verify Everything Works
+
+**Step 11: Test web application**
 ```bash
-curl http://<ALB_DNS_NAME>/health
-# Should return: OK (200 status)
+curl http://ALB_DNS_NAME/health    # should return: OK
+curl http://ALB_DNS_NAME/          # should return HTML page
 ```
+Or open `http://ALB_DNS_NAME` in browser.
 
-### Step 14: Access Grafana via SSH Tunnel
-From your laptop:
+**Step 12: Access Grafana** *(via SSH tunnel from laptop)*
 ```bash
-ssh -L 3000:<MONITOR_IP>:3000 -i ~/.ssh/instance_key.pem ec2-user@<MONITOR_IP>
-# Then open: http://localhost:3000
-# Default: admin / admin
+ssh -L 3000:MONITOR_PUBLIC_IP:3000 \
+  -i ~/.ssh/instance_key.pem \
+  ec2-user@MONITOR_PUBLIC_IP
+```
+Open `http://localhost:3000` → Login: `admin` / `admin` *(change password immediately)*
+
+**Step 13: Access Prometheus targets** *(via SSH tunnel from laptop)*
+```bash
+ssh -L 9090:MONITOR_PUBLIC_IP:9090 \
+  -i ~/.ssh/instance_key.pem \
+  ec2-user@MONITOR_PUBLIC_IP
+```
+Open `http://localhost:9090/targets` → all targets should show **State = UP**
+
+**Step 14: Verify Lambda monitoring**
+- AWS Console → Lambda → `aws-webapp-infra-rds-monitor`
+- Click **Test** → create empty test event → **Invoke**
+- Check CloudWatch Logs for execution output
+- SNS email arrives if RDS storage is below 5GB
+
+**Step 15: Verify Auto Scaling**
+```bash
+aws autoscaling describe-auto-scaling-groups \
+  --region ap-south-1 \
+  --query 'AutoScalingGroups[].{Name:AutoScalingGroupName,Min:MinSize,Max:MaxSize,Desired:DesiredCapacity}'
 ```
 
-### Step 15: Cleanup (Destroy Resources)
+---
+
+### Phase 4: Cleanup
+
+**Step 16: Destroy all infrastructure**
 ```bash
 cd terraform/
 terraform destroy
-# Confirms before destroying — DO NOT skip this in production!
 ```
+Type `yes` when prompted. Removes all resources except S3 bucket and DynamoDB table.
+
+**Step 17: Verify no resources running**
+```bash
+aws resourcegroupstaggingapi get-resources \
+  --tag-filters Key=Project,Values=aws-webapp-infra \
+  --region ap-south-1 \
+  --query 'ResourceTagMappingList[].ResourceARN'
+```
+Should return `[]` — empty list confirms no chargeable resources running.
+
+---
 
 ## Security Design
 
-- **ALB**: Only port 80 exposed to internet (0.0.0.0/0)
-- **EC2 from ALB**: Port 80 allowed only from ALB security group
-- **EC2 SSH**: Port 22 allowed only from `admin_cidr_blocks` (your IP)
-- **RDS**: Port 3306 allowed only from EC2 security group (no public access)
-- **IAM Roles**: EC2 instances assume roles with minimum required permissions
-  - Lambda IAM role scoped to cloudwatch:GetMetricStatistics and sns:Publish on the specific topic ARN only
-  - CloudWatch Logs for Lambda execution
-  - No hardcoded AWS keys on instances
-- **Secrets Management**: Database password passed via `TF_VAR_db_password` environment variable (never in code)
-- **Terraform State**: Encrypted at rest in S3, locked via DynamoDB
-- **Resource Tagging**: All resources tagged for cost allocation and compliance audits
+| Layer | Rule |
+|---|---|
+| ALB | Port 80 open to internet `0.0.0.0/0` only |
+| EC2 port 80 | Accepts only from ALB security group (not internet directly) |
+| EC2 port 22 | Accepts only from `admin_cidr_blocks` (your IPs) |
+| EC2 port 9100 | Accepts only from `admin_cidr_blocks` (Prometheus scraping) |
+| RDS port 3306 | Accepts only from ASG security group (no public access) |
+| IAM | EC2 instance profiles with least-privilege policies — no hardcoded AWS keys |
+| Secrets | `db_password` via `TF_VAR_` environment variable — never in code or files |
+| State | Terraform state encrypted at rest in S3, locked via DynamoDB |
 
 ## Lab vs Production Tradeoffs
 
 | Component | This Lab | Production |
-|-----------|----------|------------|
-| Load Balancer | ALB port 80 only | ALB + HTTPS with ACM certificate + WAF |
-| Database | Single-AZ, no backup redundancy | Multi-AZ RDS with automated snapshots + point-in-time recovery |
-| Network | No NAT Gateway (public EC2) | NAT Gateway for private EC2 egress + VPC endpoints |
-| Secrets | TF_VAR environment variable | AWS Secrets Manager + rotation policies |
-| EC2 Size | t2.micro (1 vCPU, 1GB) | t3.small+ right-sized per load testing |
-| Monitoring | Self-hosted Prometheus/Grafana | CloudWatch + Datadog/New Relic + AlertManager |
-| Auto Scaling | Min 1 Max 2 at 70% CPU | Min 2 Max 10+ with target tracking policies |
-| Disaster Recovery | No multi-region | Active-active or active-passive across regions |
+|---|---|---|
+| Load Balancer | HTTP port 80 only | HTTPS with ACM certificate + WAF |
+| Database | Single-AZ, no backups | Multi-AZ + automated snapshots |
+| Network | No NAT Gateway (public EC2) | NAT Gateway for private egress |
+| Secrets | TF_VAR environment variable | AWS Secrets Manager + rotation |
+| EC2 Size | t2.micro | Right-sized per load testing |
+| Monitoring | Self-hosted Prometheus/Grafana | Datadog / CloudWatch / New Relic |
+| Auto Scaling | Min 1 Max 2 at 70% CPU | Min 2 Max 10+ with target tracking |
+| Disaster Recovery | Single region | Active-active or active-passive multi-region |
 
 ## Cost Estimate
 
-### Free Tier (First 12 Months)
-- **EC2 t2.micro**: 750 hours/month = FREE
-- **RDS db.t3.micro**: 750 hours/month = FREE
-- **ALB**: First month free, then ~$16/month
-- **Data Transfer**: 100GB/month free
-- **Total**: ~$0/month (or ~$16 if ALB exceeds free tier)
+### Free Tier (first 12 months)
+- EC2 t2.micro: 750 hrs/month = **FREE**
+- RDS db.t3.micro: 750 hrs/month = **FREE**
+- ALB: ~**$16/month** (not fully free after first month)
+- Lambda + EventBridge: **FREE** (well within 1M free invocations)
 
-### After Free Tier Expires
-- **RDS db.t3.micro**: ~$12/month
-- **ALB**: ~$16/month (0.006 per hour, ~730 hours/month)
-- **EC2 t2.micro**: ~$8/month (0.011 per hour, two instances)
-- **Data Transfer**: ~$0 (minimal inter-AZ)
-- **Estimated Total**: **~$25-35/month**
+### After Free Tier
+- RDS: ~$12/month · ALB: ~$16/month · EC2 (x2): ~$8/month
+- **Estimated total: ~$25-35/month**
 
-⚠️ **Always run `terraform destroy` after testing to avoid unexpected charges!**
+⚠️ **Always run `terraform destroy` after testing to avoid unexpected charges.**
 
 ## Built with GitHub Copilot
 
@@ -410,4 +322,4 @@ This project was built using **GitHub Copilot** for AI-assisted Terraform and An
 **Amit Koundal**
 - GitHub: [github.com/amitkoundal02](https://github.com/amitkoundal02)
 - LinkedIn: [linkedin.com/in/amit-koundal-5833ba33a](https://linkedin.com/in/amit-koundal-5833ba33a)
-- Certification: AWS Certified Solutions Architect - Associate
+- Certification: AWS Certified Solutions Architect – Associate
