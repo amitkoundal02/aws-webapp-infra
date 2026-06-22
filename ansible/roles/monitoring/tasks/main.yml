@@ -51,6 +51,11 @@
 - name: Reload systemd
   command: systemctl daemon-reload
 
+- name: Import Grafana GPG key
+  rpm_key:
+    key: https://rpm.grafana.com/gpg.key
+    state: present
+
 - name: Download Grafana rpm
   get_url:
     url: https://dl.grafana.com/oss/release/grafana-10.4.2-1.x86_64.rpm
@@ -61,6 +66,10 @@
   dnf:
     name: /tmp/grafana.rpm
     state: present
+    disable_gpg_check: yes
+
+- name: Reload systemd after Grafana install
+  command: systemctl daemon-reload
 
 - name: Create Prometheus config directory
   file:
@@ -82,8 +91,37 @@
     state: started
     enabled: true
 
-- name: Enable and start Grafana
-  service:
-    name: grafana-server
-    state: started
-    enabled: true
+- name: Configure Grafana to listen on all interfaces
+  lineinfile:
+    path: /etc/grafana/grafana.ini
+    regexp: '^;http_addr ='
+    line: 'http_addr = 0.0.0.0'
+    state: present
+
+- name: Create systemd wants directory for Grafana
+  file:
+    path: /etc/systemd/system/multi-user.target.wants
+    state: directory
+    mode: '0755'
+
+- name: Enable Grafana by creating systemd symlink directly
+  file:
+    src: /usr/lib/systemd/system/grafana-server.service
+    dest: /etc/systemd/system/multi-user.target.wants/grafana-server.service
+    state: link
+    force: yes
+
+- name: Reload systemd after enabling Grafana
+  command: systemctl daemon-reload
+
+- name: Start Grafana service
+  command: systemctl start grafana-server
+
+- name: Verify Grafana is running
+  command: systemctl is-active grafana-server
+  register: grafana_status
+  changed_when: false
+
+- name: Show Grafana status
+  debug:
+    msg: "Grafana service status: {{ grafana_status.stdout }}"
