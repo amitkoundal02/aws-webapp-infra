@@ -5,25 +5,62 @@ AWS_REGION="ap-south-1"
 TAG_KEY="Project"
 TAG_VALUE="aws-webapp-infra"
 
-WEB_INSTANCES=$(aws ec2 describe-instances --region "$AWS_REGION" --filters \
-  "Name=tag:${TAG_KEY},Values=${TAG_VALUE}" \
-  "Name=instance-state-name,Values=running" \
-  --query 'Reservations[].Instances[?contains(Tags[?Key==`Name`].Value | [0], `web`) || contains(Tags[?Key==`Name`].Value | [0], `monitor`) || contains(Tags[?Key==`Name`].Value | [0], `bastion`)].{InstanceId:InstanceId,PrivateIpAddress:PrivateIpAddress,PublicIpAddress:PublicIpAddress,Tags:Tags}' \
+echo "Fetching running instances tagged ${TAG_KEY}=${TAG_VALUE}..."
+
+WEB_INSTANCES=$(aws ec2 describe-instances \
+  --region "$AWS_REGION" \
+  --filters \
+    "Name=tag:${TAG_KEY},Values=${TAG_VALUE}" \
+    "Name=instance-state-name,Values=running" \
   --output json)
 
-cat > inventory.ini <<'EOF'
+# Web instances: contains "web" OR "asg" BUT NOT "monitor"
+WEB_IPS=$(echo "$WEB_INSTANCES" | jq -r '
+  .Reservations[].Instances[] |
+  select(
+    .Tags != null and
+    (.Tags[] | select(.Key == "Name") | .Value | ascii_downcase |
+     ((contains("web") or contains("asg")) and (contains("monitor") | not)))
+  ) |
+  .PublicIpAddress // empty
+')
+
+# Monitor instances: contains "monitor"
+MONITOR_IPS=$(echo "$WEB_INSTANCES" | jq -r '
+  .Reservations[].Instances[] |
+  select(
+    .Tags != null and
+    (.Tags[] | select(.Key == "Name") | .Value | ascii_downcase | contains("monitor"))
+  ) |
+  .PublicIpAddress // empty
+')
+
+echo "Web IPs found:     ${WEB_IPS:-NONE}"
+echo "Monitor IPs found: ${MONITOR_IPS:-NONE}"
+
+# Write inventory.ini
+cat > inventory.ini << EOF
 [web]
+${WEB_IPS}
+
+[monitor]
+${MONITOR_IPS}
 EOF
 
-echo "$WEB_INSTANCES" | jq -r '.[] | select(.Tags | any(.Key=="Name" and (.Value | test("web"; "i")))) | .PublicIpAddress' >> inventory.ini
+echo ""
+echo "=== inventory.ini ==="
+cat inventory.ini
 
-
-printf "\n[monitor]\n" >> inventory.ini
-
-echo "$WEB_INSTANCES" | jq -r '.[] | select(.Tags | any(.Key=="Name" and (.Value | test("monitor"; "i")))) | .PublicIpAddress' >> inventory.ini
-
-cat > ~/.ssh/config <<EOF
+# Update SSH config
+cat > ~/.ssh/config << EOF
 Host *
   User ec2-user
-  IdentityFile ~/.ssh/id_rsa
+  IdentityFile ~/.ssh/instance_key.pem
+  StrictHostKeyChecking no
+  ServerAliveInterval 60
 EOF
+
+chmod 600 ~/.ssh/config
+echo ""
+echo "SSH config updated — using instance_key.pem"
+echo "Done."
