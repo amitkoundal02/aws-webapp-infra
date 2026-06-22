@@ -224,17 +224,13 @@ Or open `http://ALB_DNS_NAME` in browser.
 
 **Step 12: Access Grafana** *(via SSH tunnel from laptop)*
 ```bash
-ssh -L 3000:MONITOR_PUBLIC_IP:3000 \
-  -i ~/.ssh/instance_key.pem \
-  ec2-user@MONITOR_PUBLIC_IP
+ssh -L 3000:localhost:3000 -i ~/.ssh/instance_key.pem ec2-user@MONITOR_IP -N
 ```
 Open `http://localhost:3000` → Login: `admin` / `admin` *(change password immediately)*
 
 **Step 13: Access Prometheus targets** *(via SSH tunnel from laptop)*
 ```bash
-ssh -L 9090:MONITOR_PUBLIC_IP:9090 \
-  -i ~/.ssh/instance_key.pem \
-  ec2-user@MONITOR_PUBLIC_IP
+ssh -L 9090:localhost:9090 -i ~/.ssh/instance_key.pem ec2-user@MONITOR_IP -N
 ```
 Open `http://localhost:9090/targets` → all targets should show **State = UP**
 
@@ -244,11 +240,21 @@ Open `http://localhost:9090/targets` → all targets should show **State = UP**
 - Check CloudWatch Logs for execution output
 - SNS email arrives if RDS storage is below 5GB
 
+```bash
+aws lambda invoke \
+  --function-name aws-webapp-infra-rds-monitor \
+  --region ap-south-1 \
+  --payload '{}' \
+  --cli-binary-format raw-in-base64-out \
+  response.json && cat response.json
+```  
+
 **Step 15: Verify Auto Scaling**
 ```bash
 aws autoscaling describe-auto-scaling-groups \
   --region ap-south-1 \
-  --query 'AutoScalingGroups[].{Name:AutoScalingGroupName,Min:MinSize,Max:MaxSize,Desired:DesiredCapacity}'
+  --query 'AutoScalingGroups[].{Name:AutoScalingGroupName,Min:MinSize,Max:MaxSize,Desired:DesiredCapacity}' \
+  --output table
 ```
 
 ---
